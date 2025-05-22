@@ -1,0 +1,622 @@
+{% extends "base.html" %}
+
+{% block title %}Parent Dashboard - Youth Club{% endblock %}
+
+{% block head %}
+<script>
+// All JavaScript functions
+function handleSubmit() {
+    console.log('Submit button clicked - handleSubmit');
+    
+    // Get form data
+    const form = document.getElementById('addChildForm');
+    if (!form) {
+        console.error('Form not found!');
+        return;
+    }
+    
+    const formData = new FormData(form);
+    const data = {
+        name: formData.get('name'),
+        age: parseInt(formData.get('age')),
+        emergency_contact: formData.get('emergency_contact')
+    };
+
+    console.log('Form data:', data);
+
+    // Validate data
+    if (!data.name || !data.age || !data.emergency_contact) {
+        showError('Please fill in all fields');
+        return;
+    }
+
+    // Show loading state
+    const submitButton = document.getElementById('submitChildBtn');
+    const originalText = submitButton.innerHTML;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
+    submitButton.disabled = true;
+
+    // Get token from localStorage
+    const currentToken = localStorage.getItem('token');
+    if (!currentToken) {
+        showError('Session expired. Please log in again.');
+        setTimeout(() => window.location.href = '/', 2000);
+        return;
+    }
+
+    // Send request
+    fetch('/parent/add_child', {
+        method: 'POST',
+        headers: {
+            'Authorization': 'Bearer ' + currentToken,
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => {
+        console.log('Response status:', response.status);
+        return response.json().then(data => {
+            if (!response.ok) {
+                throw new Error(data.message || 'Failed to add child');
+            }
+            return data;
+        });
+    })
+    .then(result => {
+        console.log('Server response:', result);
+        
+        // Hide modal
+        const modalElement = document.getElementById('addChildModal');
+        const modalInstance = bootstrap.Modal.getInstance(modalElement);
+        if (modalInstance) {
+            modalInstance.hide();
+        }
+        
+        // Show success message
+        showMessage('Child added successfully! Refreshing list...', true);
+        
+        // Clear form
+        form.reset();
+        
+        // Refresh children list
+        loadChildren();
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        showError(error.message || 'An error occurred. Please try again.');
+    })
+    .finally(() => {
+        // Reset button
+        submitButton.innerHTML = originalText;
+        submitButton.disabled = false;
+    });
+}
+
+function showError(message) {
+    console.log('Error:', message);
+    const errorDiv = document.getElementById('addChildError');
+    errorDiv.textContent = message;
+    errorDiv.style.display = 'block';
+}
+
+function showMessage(message, isSuccess) {
+    console.log(isSuccess ? 'Success:' : 'Error:', message);
+    const messageDiv = document.getElementById('globalError');
+    messageDiv.textContent = message;
+    messageDiv.className = `alert ${isSuccess ? 'alert-success' : 'alert-danger'}`;
+    messageDiv.style.display = 'block';
+    
+    if (isSuccess) {
+        setTimeout(() => {
+            messageDiv.style.display = 'none';
+        }, 3000);
+    }
+}
+
+function loadChildren() {
+    console.log('Loading children - starting fetch');
+    const currentToken = localStorage.getItem('token');
+    if (!currentToken) {
+        console.error('No token found');
+        showMessage('Session expired. Please log in again.');
+        setTimeout(() => window.location.href = '/', 2000);
+        return;
+    }
+
+    fetch('/parent/children', {
+        headers: {
+            'Authorization': 'Bearer ' + currentToken,
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    })
+    .then(response => {
+        console.log('Response status:', response.status);
+        if (!response.ok) {
+            throw new Error('Failed to load children');
+        }
+        return response.json();
+    })
+    .then(data => {
+        console.log('Children data received:', data);
+        const childrenList = document.getElementById('childrenList');
+        if (!childrenList) {
+            console.error('Children list element not found');
+            return;
+        }
+        
+        childrenList.innerHTML = '';
+        
+        if (!data.children || data.children.length === 0) {
+            console.log('No children found in the response');
+            childrenList.innerHTML = `
+                <div class="col-12">
+                    <div class="alert alert-info text-center">
+                        <i class="fas fa-info-circle"></i> No children added yet. 
+                        Click the "Add Child" button to add your first child.
+                    </div>
+                </div>`;
+            return;
+        }
+
+        console.log(`Found ${data.children.length} children`);
+        data.children.forEach(child => {
+            console.log('Processing child:', child);
+            const card = document.createElement('div');
+            card.className = 'col-md-4 mb-4';
+            card.innerHTML = `
+                <div class="card h-100">
+                    <div class="card-body position-relative">
+                        <h5 class="card-title">${child.name}</h5>
+                        <p class="card-text">
+                            <strong>Age:</strong> ${child.age}<br>
+                            <strong>Emergency Contact:</strong> ${child.emergency_contact}
+                        </p>
+                        <button class="btn btn-primary btn-sm view-qr" data-child-id="${child.child_id}" data-qr="${child.qr_code_base64}">
+                            <i class="fas fa-qrcode"></i> View QR Code
+                        </button>
+                    </div>
+                </div>
+            `;
+            childrenList.appendChild(card);
+
+            // Add click handler for QR code button
+            const qrButton = card.querySelector('.view-qr');
+            qrButton.addEventListener('click', function() {
+                console.log('QR button clicked for child:', child.name);
+                const qrImage = document.getElementById('qrCodeImage');
+                qrImage.src = 'data:image/png;base64,' + this.dataset.qr;
+                const qrModal = new bootstrap.Modal(document.getElementById('qrCodeModal'));
+                qrModal.show();
+            });
+        });
+        console.log('Finished adding all children to the list');
+    })
+    .catch(error => {
+        console.error('Error loading children:', error);
+        showMessage('Error loading children: ' + error.message, false);
+    });
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing...');
+    
+    // Store token
+    const token = "{{ token }}";
+    if (token) {
+        console.log('Token found, storing in localStorage');
+        localStorage.setItem('token', token);
+    } else {
+        console.error('No token found in template');
+    }
+    
+    // Add submit button click handler
+    const submitBtn = document.getElementById('submitChildBtn');
+    if (submitBtn) {
+        submitBtn.addEventListener('click', handleSubmit);
+        console.log('Submit button handler added');
+    }
+    
+    // Add modal hidden event listener
+    const modal = document.getElementById('addChildModal');
+    if (modal) {
+        modal.addEventListener('hidden.bs.modal', function() {
+            console.log('Modal hidden, refreshing children list');
+            loadChildren();
+        });
+    }
+    
+    // Load initial children list
+    loadChildren();
+    
+    console.log('Initialization complete');
+});
+</script>
+{% endblock %}
+
+{% block page_title %}Parent Dashboard{% endblock %}
+
+{% block sidebar %}
+<li class="nav-item">
+    <a class="nav-link active" href="#myChildrenSection">
+        <i class="fas fa-child"></i> My Children
+    </a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="#attendanceSection">
+        <i class="fas fa-calendar-check"></i> Attendance
+    </a>
+</li>
+<li class="nav-item">
+    <a class="nav-link" href="#analyticsSection">
+        <i class="fas fa-chart-line"></i> Analytics
+    </a>
+</li>
+{% endblock %}
+
+{% block content %}
+<div class="alert" id="globalError" style="display: none;"></div>
+
+<!-- My Children Section -->
+<section id="myChildrenSection" class="mb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2><i class="fas fa-child"></i> My Children</h2>
+        <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addChildModal">
+            <i class="fas fa-plus"></i> Add Child
+        </button>
+    </div>
+    
+    <div class="row" id="childrenList">
+        <!-- Children cards will be populated here -->
+    </div>
+</section>
+
+<!-- Attendance Section -->
+<section id="attendanceSection" class="mb-5">
+    <h2><i class="fas fa-calendar-check"></i> Recent Attendance</h2>
+    <div class="table-responsive">
+        <table class="table table-hover">
+            <thead>
+                <tr>
+                    <th>Child Name</th>
+                    <th>Check-in Time</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="attendanceTable">
+                <!-- Attendance records will be populated here -->
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- Analytics Section -->
+<section id="analyticsSection" class="mb-5">
+    <h2><i class="fas fa-chart-line"></i> Attendance Analytics</h2>
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Monthly Attendance</h5>
+                    <canvas id="monthlyAttendanceChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Attendance Statistics</h5>
+                    <div id="attendanceStats">
+                        <!-- Stats will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Add Child Modal -->
+<div class="modal fade" id="addChildModal">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Add New Child</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-danger" id="addChildError" style="display: none;"></div>
+                <form id="addChildForm">
+                    <div class="mb-3">
+                        <label for="name" class="form-label">Child's Name</label>
+                        <input type="text" class="form-control" id="name" name="name" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="age" class="form-label">Age</label>
+                        <input type="number" class="form-control" id="age" name="age" required min="0" max="18">
+                    </div>
+                    <div class="mb-3">
+                        <label for="emergency_contact" class="form-label">Emergency Contact</label>
+                        <input type="tel" class="form-control" id="emergency_contact" name="emergency_contact" required>
+                    </div>
+                    <div id="addChildError" class="alert alert-danger" style="display: none;"></div>
+                    <button type="submit" class="btn btn-primary" id="submitChildBtn">Add Child</button>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- View QR Code Modal -->
+<div class="modal fade" id="qrCodeModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Child's QR Code</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="qrCodeImage" class="img-fluid qr-code" alt="QR Code">
+                <p class="mt-3">Use this QR code for attendance tracking</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Move script block to end of content -->
+<script>
+// Wrap all code in an IIFE to avoid global scope pollution
+(function() {
+    // Function definitions
+    function handleSubmit(event) {
+        // Prevent default form submission
+        if (event) {
+            event.preventDefault();
+        }
+        
+        console.log('Submit button clicked - handleSubmit');
+        
+        // Get form data
+        const form = document.getElementById('addChildForm');
+        if (!form) {
+            console.error('Form not found!');
+            return;
+        }
+        
+        const formData = new FormData(form);
+        const data = {
+            name: formData.get('name'),
+            age: parseInt(formData.get('age')),
+            emergency_contact: formData.get('emergency_contact')
+        };
+
+        console.log('Form data:', data);
+
+        // Validate data
+        if (!data.name || !data.age || !data.emergency_contact) {
+            showError('Please fill in all fields');
+            return;
+        }
+
+        // Show loading state
+        const submitButton = document.getElementById('submitChildBtn');
+        const originalText = submitButton.innerHTML;
+        submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...';
+        submitButton.disabled = true;
+
+        // Get token from localStorage
+        const currentToken = localStorage.getItem('token');
+        if (!currentToken) {
+            showError('Session expired. Please log in again.');
+            setTimeout(() => window.location.href = '/', 2000);
+            return;
+        }
+
+        // Send request
+        fetch('/parent/add_child', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + currentToken,
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => {
+            console.log('Response status:', response.status);
+            return response.json().then(data => {
+                if (!response.ok) {
+                    throw new Error(data.message || 'Failed to add child');
+                }
+                return data;
+            });
+        })
+        .then(result => {
+            console.log('Server response:', result);
+            
+            // Hide modal
+            const modalElement = document.getElementById('addChildModal');
+            const modalInstance = bootstrap.Modal.getInstance(modalElement);
+            if (modalInstance) {
+                modalInstance.hide();
+            }
+            
+            // Show success message
+            showMessage('Child added successfully! Refreshing list...', true);
+            
+            // Clear form
+            form.reset();
+            
+            // Refresh children list
+            loadChildren();
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showError(error.message || 'An error occurred. Please try again.');
+        })
+        .finally(() => {
+            // Reset button
+            submitButton.innerHTML = originalText;
+            submitButton.disabled = false;
+        });
+    }
+
+    function showError(message) {
+        console.log('Error:', message);
+        const errorDiv = document.getElementById('addChildError');
+        errorDiv.textContent = message;
+        errorDiv.style.display = 'block';
+    }
+
+    function showMessage(message, isSuccess) {
+        console.log(isSuccess ? 'Success:' : 'Error:', message);
+        const messageDiv = document.getElementById('globalError');
+        messageDiv.textContent = message;
+        messageDiv.className = `alert ${isSuccess ? 'alert-success' : 'alert-danger'}`;
+        messageDiv.style.display = 'block';
+        
+        if (isSuccess) {
+            setTimeout(() => {
+                messageDiv.style.display = 'none';
+            }, 3000);
+        }
+    }
+
+    function loadChildren() {
+        console.log('Loading children - starting fetch');
+        const currentToken = localStorage.getItem('token');
+        if (!currentToken) {
+            console.error('No token found');
+            showMessage('Session expired. Please log in again.');
+            setTimeout(() => window.location.href = '/', 2000);
+            return;
+        }
+
+        fetch('/parent/children', {
+            headers: {
+                'Authorization': 'Bearer ' + currentToken,
+                'X-Requested-With': 'XMLHttpRequest'
+            }
+        })
+        .then(response => {
+            console.log('Response status:', response.status);
+            if (!response.ok) {
+                throw new Error('Failed to load children');
+            }
+            return response.json();
+        })
+        .then(data => {
+            console.log('Children data received:', data);
+            const childrenList = document.getElementById('childrenList');
+            if (!childrenList) {
+                console.error('Children list element not found');
+                return;
+            }
+            
+            childrenList.innerHTML = '';
+            
+            if (!data.children || data.children.length === 0) {
+                console.log('No children found in the response');
+                childrenList.innerHTML = `
+                    <div class="col-12">
+                        <div class="alert alert-info text-center">
+                            <i class="fas fa-info-circle"></i> No children added yet. 
+                            Click the "Add Child" button to add your first child.
+                        </div>
+                    </div>`;
+                return;
+            }
+
+            console.log(`Found ${data.children.length} children`);
+            data.children.forEach(child => {
+                console.log('Processing child:', child);
+                const card = document.createElement('div');
+                card.className = 'col-md-4 mb-4';
+                card.innerHTML = `
+                    <div class="card h-100">
+                        <div class="card-body position-relative">
+                            <h5 class="card-title">${child.name}</h5>
+                            <p class="card-text">
+                                <strong>Age:</strong> ${child.age}<br>
+                                <strong>Emergency Contact:</strong> ${child.emergency_contact}
+                            </p>
+                            <button class="btn btn-primary btn-sm view-qr" data-child-id="${child.child_id}" data-qr="${child.qr_code_base64}">
+                                <i class="fas fa-qrcode"></i> View QR Code
+                            </button>
+                        </div>
+                    </div>
+                `;
+                childrenList.appendChild(card);
+
+                // Add click handler for QR code button
+                const qrButton = card.querySelector('.view-qr');
+                qrButton.addEventListener('click', function() {
+                    console.log('QR button clicked for child:', child.name);
+                    const qrImage = document.getElementById('qrCodeImage');
+                    qrImage.src = 'data:image/png;base64,' + this.dataset.qr;
+                    const qrModal = new bootstrap.Modal(document.getElementById('qrCodeModal'));
+                    qrModal.show();
+                });
+            });
+            console.log('Finished adding all children to the list');
+        })
+        .catch(error => {
+            console.error('Error loading children:', error);
+            showMessage('Error loading children: ' + error.message, false);
+        });
+    }
+
+    // Initialize when DOM is ready
+    function initialize() {
+        console.log('DOM loaded, initializing...');
+        
+        // Store token
+        const token = "{{ token }}";
+        if (token) {
+            console.log('Token found, storing in localStorage');
+            localStorage.setItem('token', token);
+        } else {
+            console.error('No token found in template');
+        }
+        
+        // Add form submit handler
+        const form = document.getElementById('addChildForm');
+        if (form) {
+            form.addEventListener('submit', handleSubmit);
+            console.log('Form submit handler added');
+        }
+        
+        // Also add click handler to submit button as backup
+        const submitBtn = document.getElementById('submitChildBtn');
+        if (submitBtn) {
+            submitBtn.addEventListener('click', handleSubmit);
+            console.log('Submit button handler added');
+        }
+        
+        // Add modal hidden event listener
+        const modal = document.getElementById('addChildModal');
+        if (modal) {
+            modal.addEventListener('hidden.bs.modal', function() {
+                console.log('Modal hidden, refreshing children list');
+                loadChildren();
+            });
+        }
+        
+        // Load initial children list
+        loadChildren();
+        
+        console.log('Initialization complete');
+    }
+
+    // Ensure the DOM is fully loaded before initializing
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initialize);
+    } else {
+        initialize();
+    }
+})();
+</script>
+{% endblock %} 
