@@ -83,7 +83,7 @@ FLASK_ENV=development
 FLASK_DEBUG=1
 ```
 
-⚠️ Important: Never commit the `.env` file to version control. It contains sensitive information.
+
 
 5. Initialize the database:
 ```bash
